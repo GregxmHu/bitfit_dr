@@ -1,8 +1,10 @@
+from turtle import position
 from transformers import AutoModel
 import torch
 from accelerate import Accelerator
 import collections
 import os
+from typing import List, Tuple, Dict
 
 class DRT5(torch.nn.Module):
     def __init__(self,pretrain_model_path_or_name:str=None,pooling_mode:str="cls",backbone_state_dict_path:str=None):
@@ -83,6 +85,23 @@ class DRT5(torch.nn.Module):
         backbone_state_dict=collections.OrderedDict({k:st[k] for k in self.backbone_keys})
         torch.save(backbone_state_dict,os.path.join(save_path,"backbone_state_dict.bin"))
 
-    def forward(self,accelerator:Accelerator=None):
-        pass
+    def forward(self,input_ids,attention_mask):
+        decoder_input_ids=torch.zeros_like(input_ids).to(input_ids.device)
+        ## get embeddings
+        sentence_embeddings=self.embed_model(
+            decoder_input_ids=decoder_input_ids,
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            return_dict=True
+        )['last_hidden_state']
+        ## pool embeddings
+        if self.pooling_mode=="cls":
+            position_weights=torch.zeros_like(sentence_embeddings).to(input_ids.device)
+            position_weights[:,0:]=1
+
+        return torch.sum(
+            sentence_embeddings*position_weights,dim=1
+        )        
+
+
     
