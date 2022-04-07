@@ -2,14 +2,23 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 import torch
+from accelerate import Accelerator
 import logging
 
 
 class MSMARCODataset(Dataset):
-    def __init__(self, tokenizer:AutoTokenizer=None,queries_file_path:str=None, corpus_file_path:str=None,qrels_file_path:str=None):
+    def __init__(self, tokenizer:AutoTokenizer=None,queries_file_path:str=None, corpus_file_path:str=None,qrels_file_path:str=None,max_seq_length:int = 300,
+                    accelerator:Accelerator=None):
         self.tokenizer=tokenizer
-        self.queries,self.corpus = self.getdata(queries_file_path,corpus_file_path,qrels_file_path)
-        self.queries_ids = list(self.queries.keys())
+        self.max_seq_length=max_seq_length
+        queries,self.corpus = self.getdata(queries_file_path,corpus_file_path,qrels_file_path)
+        queries_ids = list(self.queries.keys())
+        if accelerator is not None:
+            self.queries_ids=[queries_ids[idx] for idx in range(len(queries_ids)) if idx % accelerator.num_processes == accelerator.process_index]
+            self.queries=[queries[idx] for idx in self.queries_ids]
+        else:
+            self.queries=queries
+            self.queries_ids=queries_ids
 
     def __getitem__(self, item):
         query = self.queries[self.queries_ids[item]]
@@ -24,9 +33,9 @@ class MSMARCODataset(Dataset):
         neg_text = self.corpus[neg_id]
         query['neg'].append(neg_id)
 
-        tokenized_query=self.tokenizer(query_text, padding="max_length", truncation=True, max_length=300)
-        tokenized_pos_doc=self.tokenizer(pos_text, padding="max_length", truncation=True, max_length=300)
-        tokenized_neg_doc=self.tokenizer(neg_text, padding="max_length", truncation=True, max_length=300)
+        tokenized_query=self.tokenizer(query_text, padding="max_length", truncation=True, max_length=self.max_seq_length)
+        tokenized_pos_doc=self.tokenizer(pos_text, padding="max_length", truncation=True, max_length=self.max_seq_length)
+        tokenized_neg_doc=self.tokenizer(neg_text, padding="max_length", truncation=True, max_length=self.max_seq_length)
 
         return (tokenized_query, tokenized_pos_doc, tokenized_neg_doc)
 
