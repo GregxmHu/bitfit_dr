@@ -95,10 +95,11 @@ class DRT5(torch.nn.Module):
             return_dict=True
         )['last_hidden_state']
         ## pool embeddings
+        # cls pooling
         if self.pooling_mode=="cls":
-            position_weights=torch.zeros_like(sentence_embeddings).to(input_ids.device)
-            position_weights[:,0:]=1
-
+            position_weights=torch.zeros_like(sentence_embeddings).float().to(input_ids.device)
+            position_weights[:,0:]=1.
+        # weightedmean pooling
         return torch.sum(
             sentence_embeddings*position_weights,dim=1
         )        
