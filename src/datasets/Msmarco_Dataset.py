@@ -39,23 +39,26 @@ class MSMARCODataset(Dataset):
         batch_query_input_ids = torch.tensor([item[0]['input_ids'] for item in batch])
         batch_query_attention_mask = torch.tensor([item[0]['attention_mask'] for item in batch])
         batch_query={
-            'batch_query_input_ids':batch_query_input_ids,
-            'batch_query_attention_mask':batch_query_attention_mask
+            'input_ids':batch_query_input_ids,
+            'attention_mask':batch_query_attention_mask
         }
 
         batch_pos_doc_input_ids = torch.tensor([item[1]['input_ids'] for item in batch])
         batch_pos_doc_attention_mask = torch.tensor([item[1]['attention_mask'] for item in batch])
         batch_pos_doc={
-            'batch_pos_doc_input_ids':batch_pos_doc_input_ids,
-            'batch_pos_doc_attention_mask':batch_pos_doc_attention_mask
+            'input_ids':batch_pos_doc_input_ids,
+            'attention_mask':batch_pos_doc_attention_mask
         }
 
         batch_neg_doc_input_ids = torch.tensor([item[2]['input_ids'] for item in batch])
         batch_neg_doc_attention_mask = torch.tensor([item[2]['attention_mask'] for item in batch])
         batch_neg_doc={
-            'batch_neg_doc_input_ids':batch_neg_doc_input_ids,
-            'batch_neg_doc_attention_mask':batch_neg_doc_attention_mask
+            'input_ids':batch_neg_doc_input_ids,
+            'attention_mask':batch_neg_doc_attention_mask
         }
+
+        #decoder_input_ids=torch.zeros_like(batch_query_input_ids)
+
         return (batch_query,batch_pos_doc,batch_neg_doc)
 
     def getdata(queries_filepath,collection_filepath,qrels_filepath):
