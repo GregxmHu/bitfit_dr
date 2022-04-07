@@ -9,6 +9,7 @@ class DRT5(torch.nn.Module):
         super(DRT5,self).__init__()
         ## load pretrain model
         self.embed_model=AutoModel.from_pretrained(pretrain_model_path_or_name)
+        self.scale()
         self.pooling_mode=pooling_mode
         if backbone_state_dict_path is not None:
             self.embed_model.load_state_dict(
@@ -26,6 +27,18 @@ class DRT5(torch.nn.Module):
             bias_state_dict=torch.load(bias_state_dict_path)
             model_state_dict.update(bias_state_dict)
             self.embed_model.load_state_dict(model_state_dict)
+
+    def scale(self):
+        for i in range(self.embed_model.config.num_layers):
+            self.embed_model.state_dict()[f'encoder.block.{i}.layer.0.SelfAttention.o.weight'] /= 100
+            self.embed_model.state_dict()[f'encoder.block.{i}.layer.1.DenseReluDense.wi.weight'] /= 10
+            self.embed_model.state_dict()[f'encoder.block.{i}.layer.1.DenseReluDense.wo.weight'] /= 10
+
+            self.embed_model.state_dict()[f'decoder.block.{i}.layer.1.EncDecAttention.o.weight'] /= 100
+            self.embed_model.state_dict()[f'decoder.block.{i}.layer.0.SelfAttention.o.weight'] /= 100
+            self.embed_model.state_dict()[f'decoder.block.{i}.layer.2.DenseReluDense.wi.weight'] /= 10
+            self.embed_model.state_dict()[f'decoder.block.{i}.layer.2.DenseReluDense.wo.weight'] /= 10
+        self.embed_model.state_dict()['shared.weight'] /= 100
 
     def add_bias(self):
         self.bias_keys=[]
