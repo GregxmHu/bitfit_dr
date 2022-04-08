@@ -13,6 +13,8 @@ train_queries_name="queries.train.tsv"
 train_qrels_name="qrels-irrels.train.tsv"
 log_dir="$project_path/logs/$identifier"
 pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-base"
+mkdir $checkpoint_save_folder
+mkdir $log_dir
 accelerate launch\
  --config_file accelerate_config.yaml\
  train.py\
