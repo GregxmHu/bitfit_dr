@@ -22,7 +22,9 @@ from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from accelerate import DistributedDataParallelKwargs
 from transformers import AdamW
+import torch.distributed as dist
 import time
+from util import mismatched_sizes_all_gather,cos_sim
 #### Just some code to print debug information to stdout
 
 parser = argparse.ArgumentParser()
@@ -55,7 +57,7 @@ parser.add_argument("--log_dir", type=str,default=None)
 parser.add_argument("--epochs", default=10, type=int)
 
 parser.add_argument("--warmup_steps", default=1000, type=int)
-
+parser.add_argument("--gradient_accumulation_steps", default=1, type=int)
 parser.add_argument("--lr", default=2e-5, type=float)
 
 parser.add_argument("--seed", default=13, type=int)
@@ -64,6 +66,8 @@ parser.add_argument("--use_amp", action="store_true")
 parser.add_argument("--local_rank", type=int, default=-1)
 
 parser.add_argument("--round_idx", default=0,type=int)
+
+parser.add_argument("--scale",default=20.0,type=float)
 
 args = parser.parse_args()
 
@@ -84,10 +88,12 @@ train_batch_size = args.train_batch_size  # Increasing the train batch size impr
 max_seq_length = args.max_seq_length  # Max length for passages. Increasing it, requires more GPU memory
 num_epochs = args.epochs  # Number of epochs we want to train
 optimizer_params={'lr': args.lr}
+gradient_accumulation_steps=args.gradient_accumulation_steps
 warmup_steps=args.warmup_steps
 use_amp=args.use_amp
 checkpoint_save_folder=args.checkpoint_save_folder
 optimizer_class=AdamW
+max_grad_norm=1.0
 # Train the model
 if args.log_dir is not None and accelerator.is_main_process:
     writer = SummaryWriter(os.path.join(args.log_dir,"round{}-".format(args.round_idx)))
@@ -139,7 +145,7 @@ if args.freeze or args.freezenonbias:
             continue 
         param.requires_grad = False
 
-
+d_model=model.config.d_model
 tokenizer=AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
 qrels_dir=os.path.join(data_folder,args.identifier)
 corpus_file_path = os.path.join(data_folder, args.corpus_name)
@@ -158,20 +164,19 @@ train_dataset=MSMARCODataset(
     )
 
 # For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
-train_dataloader = accelerator.prepare(
-    DataLoader(
-    train_dataset, shuffle=True, batch_size=train_batch_size,
+train_dataloader = DataLoader(
+    train_dataset, shuffle=False, batch_size=train_batch_size,
     collate_fn=train_dataset.collate
     )
-)
 
 ###update optimizers
 weight_decay=0.01
 param_optimizer = list(model.named_parameters())
-no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+#no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+no_decay=model.bias_keys()
 optimizer_grouped_parameters = [
-    {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': weight_decay},
-    {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+    {'params': [p for n, p in param_optimizer if not any(nd == n for nd in no_decay)], 'weight_decay': weight_decay},
+    {'params': [p for n, p in param_optimizer if any(nd == n for nd in no_decay)], 'weight_decay': 0.0}
 ]
 training_steps=num_epochs*len(train_dataloader)
 optimizer = optimizer_class(optimizer_grouped_parameters, **optimizer_params)
@@ -179,13 +184,136 @@ scheduler=get_linear_schedule_with_warmup(
     optimizer=optimizer, num_warmup_steps=warmup_steps, num_training_steps=training_steps
     )
 optimizer=accelerator.prepare(optimizer)
-
+model=accelerator.prepare(model)
 ### training loop
-
-global_step = 0
+model.zero_grad()
+model.train()
 skip_scheduler = False
+loss_fnc=torch.nn.CrossEntropyLoss()
 for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_process):
-    
+    global_training_steps=0
+    training_steps=0
+    query_batch_embeddings=torch.ones(0,d_model)
+    pos_doc_batch_embeddings=torch.ones(0,d_model)
+    neg_doc_batch_embeddings=torch.ones(0,d_model)
+    for batch_triple in tqdm(train_dataloader, desc="Training A Epoch",disable=not accelerator.is_main_process):
+        query=batch_triple[0].to(accelerator.device)
+        pos_doc=batch_triple[1].to(accelerator.device)
+        neg_doc=batch_triple[2].to(accelerator.device)
+        # encode queries
+        if use_amp:
+            with autocast():
+                sub_query_batch_embeddings=model(
+                    query['input_ids'].to(accelerator.device),
+                    query['attention_mask'].to(accelerator.device)
+                )
+                # encode pos_docs
+                sub_pos_doc_batch_embeddings=model(
+                    pos_doc['input_ids'].to(accelerator.device),
+                    pos_doc['attention_mask'].to(accelerator.device)
+                )
+                # encode neg_docs
+                sub_neg_doc_batch_embeddings=model(
+                    neg_doc['input_ids'].to(accelerator.device),
+                    neg_doc['attention_mask'].to(accelerator.device)
+                )
+        else:
+            sub_query_batch_embeddings=model(
+                query['input_ids'].to(accelerator.device),
+                query['attention_mask'].to(accelerator.device)
+            )
+            # encode pos_docs
+            sub_pos_doc_batch_embeddings=model(
+                pos_doc['input_ids'].to(accelerator.device),
+                pos_doc['attention_mask'].to(accelerator.device)
+            )
+            # encode neg_docs
+            sub_neg_doc_batch_embeddings=model(
+                neg_doc['input_ids'].to(accelerator.device),
+                neg_doc['attention_mask'].to(accelerator.device)
+            )
+        training_steps+=1
+        query_batch_embeddings=torch.cat(
+            query_batch_embeddings,
+            sub_query_batch_embeddings
+        )
+        pos_doc_batch_embeddings=torch.cat(
+            query_batch_embeddings,
+            sub_query_batch_embeddings
+        )
+        neg_doc_batch_embeddings=torch.cat(
+            query_batch_embeddings,
+            sub_query_batch_embeddings
+        )
+        if training_steps % gradient_accumulation_steps ==0:
+            global_training_steps += 1
+            shared_pos_doc_batch_embeddings=torch.cat(
+                mismatched_sizes_all_gather(
+                pos_doc_batch_embeddings
+                )
+            )
+            shared_neg_doc_batch_embeddings=torch.cat(
+                mismatched_sizes_all_gather(
+                pos_doc_batch_embeddings
+                )
+            )
+            candidates = torch.cat(
+                [shared_pos_doc_batch_embeddings, 
+                shared_neg_doc_batch_embeddings]
+                )
+            if use_amp:
+                with autocast():
+                    scores = cos_sim(
+                        query_batch_embeddings, candidates
+                        ) * args.scale
+                    labels = torch.tensor(range(len(scores)), dtype=torch.long, device=accelerator.device)\
+                            + len(scores) * accelerator.process_index
+                    
+                    loss=loss_fnc(scores,labels)
+                scale_before_step = scaler.get_scale()
+                accelerator.backward(scaler.scale(loss))
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                scaler.step(optimizer)
+                scaler.update()
+                skip_scheduler = scaler.get_scale() != scale_before_step
+                optimizer.zero_grad()
+                if not skip_scheduler:
+                    scheduler.step()
+            else:
+                scores = cos_sim(
+                    query_batch_embeddings, candidates
+                    ) * args.scale
+                labels = torch.tensor(range(len(scores)), dtype=torch.long, device=accelerator.device)\
+                        + len(scores) * accelerator.process_index
+                
+                loss=loss_fnc(scores,labels)
+                accelerator.backward(loss)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                optimizer.step()
+                optimizer.zero_grad()
+                if not skip_scheduler:
+                    scheduler.step()
+            dist.barrier()
+            if tb :
+                tb.add_scalar("loss",loss.item(),global_training_steps)
+            dist.barrier()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
