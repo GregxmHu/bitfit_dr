@@ -308,7 +308,7 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
 checkpoint_save_path=os.path.join(
     args.checkpoint_save_folder,"round{}".format(args.round_idx)
 )
-model.module.save()
+model.module.save(checkpoint_save_path)
 
 
 
