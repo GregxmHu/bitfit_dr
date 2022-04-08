@@ -43,8 +43,7 @@ parser.add_argument("--train_qrels_name", default="qrels.tsv", type=str)
 parser.add_argument("--train_batch_size", default=64, type=int)
 
 parser.add_argument("--pretrained_model_name_or_path", required=True,type=str,default=None)
-parser.add_argument("--backbone_state_dict_path", required=True,type=str,default=None)
-parser.add_argument("--bias_state_dict_path", required=True,type=str,default=None)
+
 
 parser.add_argument("--max_seq_length", default=300, type=int)
 parser.add_argument("--pooling", default="mean",type=str,
