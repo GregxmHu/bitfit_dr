@@ -96,7 +96,7 @@ optimizer_class=AdamW
 max_grad_norm=1.0
 # Train the model
 if args.log_dir is not None and accelerator.is_main_process:
-    writer = SummaryWriter(os.path.join(args.log_dir,"round{}-".format(args.round_idx)))
+    writer = SummaryWriter(os.path.join(args.log_dir,"round{}/".format(args.round_idx)))
     tb = writer
 else:
     tb=None
@@ -109,11 +109,11 @@ if args.use_amp:
 pretrained_model_name_or_path = args.pretrained_model_name_or_path
 if args.round_idx!=0:
     backbone_state_dict_path=os.path.join(
-        args.checkpoint_save_folder,"round{}-backbone_state_dict.bin".format(args.round_idx-1)
+        args.checkpoint_save_folder,"round{}/backbone_state_dict.bin".format(args.round_idx-1)
     )
     if args.freezenonbias:
         bias_state_dict_path=os.path.join(
-            args.checkpoint_save_folder,"round{}-bias_state_dict.bin".format(args.round_idx-1)
+            args.checkpoint_save_folder,"round{}/bias_state_dict.bin".format(args.round_idx-1)
         )
 
 
@@ -153,7 +153,7 @@ train_queries_filepath = os.path.join(data_folder, args.train_queries_name)
 if args.round_idx==0:
     train_qrels_filepath=os.path.join(data_folder, args.train_qrels_name)
 else:
-    train_qrels_filepath=os.path.join(qrels_dir, "round{}-".format(args.round_idx-1)+args.train_qrels_name)
+    train_qrels_filepath=os.path.join(qrels_dir, "round{}/".format(args.round_idx-1)+args.train_qrels_name)
 
 train_dataset=MSMARCODataset(
     tokenizer=tokenizer,
@@ -190,13 +190,15 @@ model.zero_grad()
 model.train()
 skip_scheduler = False
 loss_fnc=torch.nn.CrossEntropyLoss()
+global_training_steps=0
+training_steps=0
+query_batch_embeddings=torch.ones(0,d_model)
+pos_doc_batch_embeddings=torch.ones(0,d_model)
+neg_doc_batch_embeddings=torch.ones(0,d_model)
+
 for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_process):
-    global_training_steps=0
-    training_steps=0
-    query_batch_embeddings=torch.ones(0,d_model)
-    pos_doc_batch_embeddings=torch.ones(0,d_model)
-    neg_doc_batch_embeddings=torch.ones(0,d_model)
-    for batch_triple in tqdm(train_dataloader, desc="Training A Epoch",disable=not accelerator.is_main_process):
+    for batch_triple in tqdm(train_dataloader, desc="Training:",disable=not accelerator.is_main_process):
+        training_steps+=1
         query=batch_triple[0].to(accelerator.device)
         pos_doc=batch_triple[1].to(accelerator.device)
         neg_doc=batch_triple[2].to(accelerator.device)
@@ -232,18 +234,17 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
                 neg_doc['input_ids'].to(accelerator.device),
                 neg_doc['attention_mask'].to(accelerator.device)
             )
-        training_steps+=1
         query_batch_embeddings=torch.cat(
             query_batch_embeddings,
             sub_query_batch_embeddings
         )
         pos_doc_batch_embeddings=torch.cat(
-            query_batch_embeddings,
-            sub_query_batch_embeddings
+             pos_doc_batch_embeddings,
+            sub_pos_doc_batch_embeddings
         )
         neg_doc_batch_embeddings=torch.cat(
-            query_batch_embeddings,
-            sub_query_batch_embeddings
+             neg_doc_batch_embeddings,
+            sub_neg_doc_batch_embeddings
         )
         if training_steps % gradient_accumulation_steps ==0:
             global_training_steps += 1
@@ -254,7 +255,7 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
             )
             shared_neg_doc_batch_embeddings=torch.cat(
                 mismatched_sizes_all_gather(
-                pos_doc_batch_embeddings
+                neg_doc_batch_embeddings
                 )
             )
             candidates = torch.cat(
@@ -295,9 +296,20 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
                 if not skip_scheduler:
                     scheduler.step()
             dist.barrier()
+            query_batch_embeddings=None
+            pos_doc_batch_embeddings=None
+            neg_doc_batch_embeddings=None
+            query_batch_embeddings=torch.ones(0,d_model)
+            pos_doc_batch_embeddings=torch.ones(0,d_model)
+            neg_doc_batch_embeddings=torch.ones(0,d_model)
             if tb :
                 tb.add_scalar("loss",loss.item(),global_training_steps)
             dist.barrier()
+checkpoint_save_path=os.path.join(
+    args.checkpoint_save_folder,"round{}".format(args.round_idx)
+)
+model.module.save()
+
 
 
 
