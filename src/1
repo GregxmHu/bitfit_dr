@@ -17,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import numpy as np
 import torch.cuda
-import tqdm
+from tqdm import tqdm
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from accelerate import DistributedDataParallelKwargs
@@ -144,20 +144,20 @@ if args.freeze or args.freezenonbias:
             continue 
         param.requires_grad = False
 
-d_model=model.config.d_model
+d_model=model.embed_model.config.d_model
 tokenizer=AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
 qrels_dir=os.path.join(data_folder,args.identifier)
 corpus_file_path = os.path.join(data_folder, args.corpus_name)
-train_queries_filepath = os.path.join(data_folder, args.train_queries_name)
+train_queries_file_path = os.path.join(data_folder, args.train_queries_name)
 if args.round_idx==0:
-    train_qrels_filepath=os.path.join(data_folder, args.train_qrels_name)
+    train_qrels_file_path=os.path.join(data_folder, args.train_qrels_name)
 else:
-    train_qrels_filepath=os.path.join(qrels_dir, "round{}/".format(args.round_idx-1)+args.train_qrels_name)
+    train_qrels_file_path=os.path.join(qrels_dir, "round{}/".format(args.round_idx-1)+args.train_qrels_name)
 
 train_dataset=MSMARCODataset(
     tokenizer=tokenizer,
-    queries_filepath = os.path.join(data_folder, args.train_queries_name),
-    qrels_file_path=train_qrels_filepath,
+    queries_file_path = train_queries_file_path,
+    qrels_file_path=train_qrels_file_path,
     corpus_file_path=corpus_file_path,
     accelerator=accelerator
     )
@@ -165,14 +165,14 @@ train_dataset=MSMARCODataset(
 # For training the SentenceTransformer model, we need a dataset, a dataloader, and a loss used for training.
 train_dataloader = DataLoader(
     train_dataset, shuffle=False, batch_size=train_batch_size,
-    collate_fn=train_dataset.collate
+    collate_fn=train_dataset.collate,num_workers=12
     )
 
 ###update optimizers
 weight_decay=0.01
 param_optimizer = list(model.named_parameters())
 #no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-no_decay=model.bias_keys()
+no_decay=["hxm"]
 optimizer_grouped_parameters = [
     {'params': [p for n, p in param_optimizer if not any(nd == n for nd in no_decay)], 'weight_decay': weight_decay},
     {'params': [p for n, p in param_optimizer if any(nd == n for nd in no_decay)], 'weight_decay': 0.0}
@@ -191,16 +191,16 @@ skip_scheduler = False
 loss_fnc=torch.nn.CrossEntropyLoss()
 global_training_steps=0
 training_steps=0
-query_batch_embeddings=torch.ones(0,d_model)
-pos_doc_batch_embeddings=torch.ones(0,d_model)
-neg_doc_batch_embeddings=torch.ones(0,d_model)
+query_batch_embeddings=torch.ones(0,d_model).to(accelerator.device)
+pos_doc_batch_embeddings=torch.ones(0,d_model).to(accelerator.device)
+neg_doc_batch_embeddings=torch.ones(0,d_model).to(accelerator.device)
 
 for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_process):
     for batch_triple in tqdm(train_dataloader, desc="Training:",disable=not accelerator.is_main_process):
         training_steps+=1
-        query=batch_triple[0].to(accelerator.device)
-        pos_doc=batch_triple[1].to(accelerator.device)
-        neg_doc=batch_triple[2].to(accelerator.device)
+        query=batch_triple[0]
+        pos_doc=batch_triple[1]
+        neg_doc=batch_triple[2]
         # encode queries
         if use_amp:
             with autocast():
@@ -234,16 +234,16 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
                 neg_doc['attention_mask'].to(accelerator.device)
             )
         query_batch_embeddings=torch.cat(
-            query_batch_embeddings,
-            sub_query_batch_embeddings
+            (query_batch_embeddings,
+            sub_query_batch_embeddings)
         )
         pos_doc_batch_embeddings=torch.cat(
-             pos_doc_batch_embeddings,
-            sub_pos_doc_batch_embeddings
+            ( pos_doc_batch_embeddings,
+            sub_pos_doc_batch_embeddings)
         )
         neg_doc_batch_embeddings=torch.cat(
-             neg_doc_batch_embeddings,
-            sub_neg_doc_batch_embeddings
+            ( neg_doc_batch_embeddings,
+            sub_neg_doc_batch_embeddings)
         )
         if training_steps % gradient_accumulation_steps ==0:
             global_training_steps += 1
@@ -298,9 +298,9 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
             query_batch_embeddings=None
             pos_doc_batch_embeddings=None
             neg_doc_batch_embeddings=None
-            query_batch_embeddings=torch.ones(0,d_model)
-            pos_doc_batch_embeddings=torch.ones(0,d_model)
-            neg_doc_batch_embeddings=torch.ones(0,d_model)
+            query_batch_embeddings=torch.ones(0,d_model).to(accelerator.device)
+            pos_doc_batch_embeddings=torch.ones(0,d_model).to(accelerator.device)
+            neg_doc_batch_embeddings=torch.ones(0,d_model).to(accelerator.device)
             if tb :
                 tb.add_scalar("loss",loss.item(),global_training_steps)
             dist.barrier()

@@ -12,10 +12,10 @@ class MSMARCODataset(Dataset):
         self.tokenizer=tokenizer
         self.max_seq_length=max_seq_length
         queries,self.corpus = self.getdata(queries_file_path,corpus_file_path,qrels_file_path)
-        queries_ids = list(self.queries.keys())
+        queries_ids = list(queries.keys())
         if accelerator is not None:
             self.queries_ids=[queries_ids[idx] for idx in range(len(queries_ids)) if idx % accelerator.num_processes == accelerator.process_index]
-            self.queries=[queries[idx] for idx in self.queries_ids]
+            self.queries={idx:queries[idx] for idx in self.queries_ids}
         else:
             self.queries=queries
             self.queries_ids=queries_ids
@@ -70,7 +70,7 @@ class MSMARCODataset(Dataset):
 
         return (batch_query,batch_pos_doc,batch_neg_doc)
 
-    def getdata(queries_filepath,collection_filepath,qrels_filepath):
+    def getdata(self,queries_filepath,collection_filepath,qrels_filepath):
 
         corpus = {}  # dict in the format: passage_id -> passage. Stores all existent passages
         queries = {}  

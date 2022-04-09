@@ -12,12 +12,12 @@ corpus_name="corpus_with_title.tsv"
 train_queries_name="queries.train.tsv"
 train_qrels_name="qrels-irrels.train.tsv"
 log_dir="$project_path/logs/$identifier"
-pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-base"
-mkdir $checkpoint_save_folder
-mkdir $log_dir
+pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-small"
+#mkdir $checkpoint_save_folder
+#mkdir $log_dir
 accelerate launch\
  --config_file accelerate_config.yaml\
- train.py\
+ src/train.py\
  --identifier $identifier\
  --data_folder $data_folder\
  --checkpoint_save_folder $checkpoint_save_folder\
@@ -25,7 +25,7 @@ accelerate launch\
  --train_queries_name $train_queries_name\
  --train_qrels_name $train_qrels_name\
  --pretrained_model_name_or_path ${pretrained_model_name_or_path}\
- --train_batch_size 32\
+ --train_batch_size 24\
  --pooling $pooling\
  --epochs 1\
  --use_amp\

@@ -15,7 +15,7 @@ class DRT5(torch.nn.Module):
         self.pooling_mode=pooling_mode
         if backbone_state_dict_path is not None:
             self.embed_model.load_state_dict(
-                torch.load(backbone_state_dict_path)
+                torch.load(backbone_state_dict_path,map_location="cpu")
             )
         self.backbone_keys=self.embed_model.state_dict().keys()
 
@@ -26,7 +26,7 @@ class DRT5(torch.nn.Module):
             self.add_bias()
         ### load bias
         if bias_state_dict_path is not None:
-            bias_state_dict=torch.load(bias_state_dict_path)
+            bias_state_dict=torch.load(bias_state_dict_path,map_location="cpu")
             model_state_dict.update(bias_state_dict)
             self.embed_model.load_state_dict(model_state_dict)
 
@@ -86,23 +86,17 @@ class DRT5(torch.nn.Module):
         torch.save(backbone_state_dict,os.path.join(save_path,"backbone_state_dict.bin"))
 
     def forward(self,input_ids,attention_mask):
-        decoder_input_ids=torch.zeros_like(input_ids).to(input_ids.device)
+        decoder_input_ids=torch.zeros(input_ids.shape[0],1,dtype=int).to(input_ids.device)
         ## get embeddings
         sentence_embeddings=self.embed_model(
             decoder_input_ids=decoder_input_ids,
             input_ids=input_ids,
-            attention_mask=attention_mask,
-            return_dict=True
-        )['last_hidden_state']
+            attention_mask=attention_mask
+        )[0]
         ## pool embeddings
         # cls pooling
-        if self.pooling_mode=="cls":
-            position_weights=torch.zeros_like(sentence_embeddings).float().to(input_ids.device)
-            position_weights[:,0:]=1.
+        #if self.pooling_mode=="cls":
+        #    position_weights=torch.zeros_like(sentence_embeddings).float().to(input_ids.device)
+        #    position_weights[:,0,:]=1.
         # weightedmean pooling
-        return torch.sum(
-            sentence_embeddings*position_weights,dim=1
-        )        
-
-
-    
+        return sentence_embeddings[:,0,:]       
