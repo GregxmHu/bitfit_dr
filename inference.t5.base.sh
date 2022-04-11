@@ -12,11 +12,11 @@ train_queries_name="queries.train.tsv"
 train_qrels_name="qrels.train.tsv"
 corpus_name="corpus_with_title.tsv"
 
-identifier="${model}_${pooling}-pooling_${datasets}"
+identifier="${model}.prefinetune_${pooling}-pooling_${datasets}"
 project_path="/data/home/scv0540/run/my_dr"
 data_folder="${project_path}/datasets/${datasets}/"
 checkpoint_save_folder="${project_path}/checkpoints/${identifier}/"
-pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-small"
+pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-base"
 test_csv_path="${project_path}/results/${identifier}/test.csv"
 test_topk_score_path="${project_path}/scores/${identifier}/test.tsv"
 train_topk_score_path="${project_path}/scores/${identifier}/train.tsv"
@@ -40,4 +40,3 @@ accelerate launch\
  --pooling $pooling\
  --round_idx $round\
  --seed 13\
-

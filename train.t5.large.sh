@@ -27,6 +27,7 @@ accelerate launch\
  --pretrained_model_name_or_path ${pretrained_model_name_or_path}\
  --train_batch_size 4\
  --pooling $pooling\
- --epochs 1\
+ --epochs 5\
  --use_amp\
- --log_dir=$log_dir\
+ --log_dir $log_dir\
+ --round_idx $round_idx\

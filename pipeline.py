@@ -12,14 +12,14 @@ parser.add_argument("--datasets", default="sgpt-125M", type=str)
 parser.add_argument("--total_round", default="1", type=int)
 args = parser.parse_args()
 ### prepare ###
-os.system("python prepare.py --model {} --pooling {} --datasets {}".format(args.model,args.pooling,args.datasets))
+os.system("python prepare.py --model {} --pooling {} --datasets {} --total_round {} --suffix prefinetune".format(args.model,args.pooling,args.datasets,args.total_round))
 ### train + inference + generate new qrels + ...
-qrels_dir="/data/home/scv0540/run/my_dr/datasets/{}_{}-pooling_{}".format(args.model,args.pooling,args.datasets)
+qrels_dir="/data/home/scv0540/run/my_dr/datasets/{}.prefinetune_{}-pooling_{}".format(args.model,args.pooling,args.datasets)
 qrels_path_list_file="{}/qrels_path.tsv".format(qrels_dir)
-score_path="/data/home/scv0540/run/my_dr/scores/{}_{}-pooling_{}/train.tsv".format(args.model,args.pooling,args.datasets)  
+score_path="/data/home/scv0540/run/my_dr/scores/{}.prefinetune_{}-pooling_{}/train.tsv".format(args.model,args.pooling,args.datasets)  
 #qrels_path_list=[]
 origin_qrels_path="/data/home/scv0540/run/my_dr/datasets/{}/qrels-irrels.train.tsv".format(args.datasets)
-checkpoint_dir="/data/home/scv0540/run/my_dr/checkpoints/{}_{}-pooling_{}".format(args.model,args.pooling,args.datasets)
+checkpoint_dir="/data/home/scv0540/run/my_dr/checkpoints/{}.prefinetune_{}-pooling_{}".format(args.model,args.pooling,args.datasets)
 checkpoint_path_list_file="{}/checkpoint_path.tsv".format(checkpoint_dir)
 #checkpoint_path_list=[]
 for round_idx in range(args.total_round):

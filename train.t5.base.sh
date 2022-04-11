@@ -4,7 +4,7 @@ model=$1
 pooling=$2
 datasets=$3
 round_idx=$4
-identifier="${model}_${pooling}-pooling_${datasets}"
+identifier="${model}.prefinetune_${pooling}-pooling_${datasets}"
 project_path="/data/home/scv0540/run/my_dr"
 data_folder="${project_path}/datasets/${datasets}/"
 checkpoint_save_folder="${project_path}/checkpoints/${identifier}/"
@@ -12,7 +12,7 @@ corpus_name="corpus_with_title.tsv"
 train_queries_name="queries.train.tsv"
 train_qrels_name="qrels-irrels.train.tsv"
 log_dir="$project_path/logs/$identifier"
-pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-small"
+pretrained_model_name_or_path="/data/home/scv0540/run/pretrained_models/t5-base"
 #mkdir $checkpoint_save_folder
 #mkdir $log_dir
 accelerate launch\
@@ -27,6 +27,8 @@ accelerate launch\
  --pretrained_model_name_or_path ${pretrained_model_name_or_path}\
  --train_batch_size 24\
  --pooling $pooling\
- --epochs 1\
+ --epochs 5\
  --use_amp\
- --log_dir=$log_dir\
+ --log_dir $log_dir\
+ --round_idx $round_idx\
+

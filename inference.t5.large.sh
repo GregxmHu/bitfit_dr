@@ -40,4 +40,3 @@ accelerate launch\
  --pooling $pooling\
  --round_idx $round\
  --seed 13\
-

@@ -11,6 +11,7 @@ from transformers import AutoTokenizer
 from transformers import get_linear_schedule_with_warmup
 from models.DRT5 import DRT5
 from datasets.Msmarco_Dataset import MSMARCODataset
+from datasets.Beir_Dataset import BEIRDataset
 from torch.cuda.amp import autocast
 from tqdm.autonotebook import trange
 from torch.utils.tensorboard import SummaryWriter
@@ -43,13 +44,10 @@ parser.add_argument("--train_qrels_name", default="qrels.tsv", type=str)
 parser.add_argument("--train_batch_size", default=64, type=int)
 
 parser.add_argument("--pretrained_model_name_or_path", required=True,type=str,default=None)
-
-
+parser.add_argument("--backbone_state_dict_path", required=True,type=str,default=None)
 parser.add_argument("--max_seq_length", default=300, type=int)
 parser.add_argument("--pooling", default="mean",type=str,
                     help="pooling mode")
-parser.add_argument("--freeze", action="store_true", help="Freeze transformer")
-parser.add_argument("--freezenonbias", action="store_true", help="Freeze all except biases in transformer")
 
 parser.add_argument("--log_dir", type=str,default=None)
 
@@ -107,13 +105,10 @@ if args.use_amp:
 ### load models
 pretrained_model_name_or_path = args.pretrained_model_name_or_path
 if args.round_idx!=0:
-    backbone_state_dict_path=os.path.join(
-        args.checkpoint_save_folder,"round{}/backbone_state_dict.bin".format(args.round_idx-1)
+    bias_state_dict_path=os.path.join(
+        args.checkpoint_save_folder,"round{}/bias_state_dict.bin".format(args.round_idx-1)
     )
-    if args.freezenonbias:
-        bias_state_dict_path=os.path.join(
-            args.checkpoint_save_folder,"round{}/bias_state_dict.bin".format(args.round_idx-1)
-        )
+backbone_state_dict_path=args.backbone_state_dict_path
 
 
 logging.info(args)
@@ -122,27 +117,26 @@ if args.round_idx==0:
     # first train
     model=DRT5(
         pretrain_model_path_or_name=pretrained_model_name_or_path,
-        pooling_mode=args.pooling
+        pooling_mode=args.pooling,
+        backbone_state_dict_path=backbone_state_dict_path
         )
-    if args.freezenonbias:
-        model.load_bias()
+    model.load_bias()
 elif args.round_idx >0:
     model=DRT5(
         pretrain_model_path_or_name=pretrained_model_name_or_path,
         pooling_mode=args.pooling,
         backbone_state_dict_path=backbone_state_dict_path
     )
-    if args.freezenonbias:
-        model.load_bias(
-            bias_state_dict_path=bias_state_dict_path
-            )
+    model.load_bias(
+        bias_state_dict_path=bias_state_dict_path
+        )
 
-if args.freeze or args.freezenonbias:
-    for name, param in model.named_parameters():
-        if args.freezenonbias and name in model.bias_keys:
-            # Freeze all except bias
-            continue 
-        param.requires_grad = False
+for name, param in model.named_parameters():
+    if name[12:] in model.bias_keys:
+        # Freeze all except bias
+        #print(name)
+        continue 
+    param.requires_grad = False
 
 d_model=model.embed_model.config.d_model
 tokenizer=AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
@@ -154,7 +148,7 @@ if args.round_idx==0:
 else:
     train_qrels_file_path=os.path.join(qrels_dir, "round{}/".format(args.round_idx-1)+args.train_qrels_name)
 
-train_dataset=MSMARCODataset(
+train_dataset=BEIRDataset(
     tokenizer=tokenizer,
     queries_file_path = train_queries_file_path,
     qrels_file_path=train_qrels_file_path,
@@ -167,12 +161,12 @@ train_dataloader = DataLoader(
     train_dataset, shuffle=False, batch_size=train_batch_size,
     collate_fn=train_dataset.collate,num_workers=24
     )
-print(use_amp)
+
 ###update optimizers
 weight_decay=0.01
 param_optimizer = list(model.named_parameters())
 #no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-no_decay=["hxm"]
+no_decay=model.bias_keys
 optimizer_grouped_parameters = [
         {'params': [p for n, p in param_optimizer if not any(nd == n[12:] for nd in no_decay)], 'weight_decay': weight_decay},
         {'params': [p for n, p in param_optimizer if any(nd == n[12:] for nd in no_decay)], 'weight_decay': 0.0}
@@ -304,10 +298,31 @@ for epoch in trange(num_epochs, desc="Epoch", disable=not accelerator.is_main_pr
             if tb :
                 tb.add_scalar("loss",loss.item(),global_training_steps)
             dist.barrier()
+checkpoint_save_path=os.path.join(
+    args.checkpoint_save_folder,"round{}".format(args.round_idx)
+)
 if accelerator.is_main_process:
-    checkpoint_save_path=os.path.join(
-        args.checkpoint_save_folder,"round{}".format(args.round_idx)
-    )
     if not os.path.exists(checkpoint_save_path):
         os.mkdir(checkpoint_save_path)
     model.module.save(checkpoint_save_path)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -50,7 +50,7 @@ parser.add_argument("--encode_batch_size", default=64, type=int,
 parser.add_argument("--corpus_chunk_size", default=64, type=int,
                     help="split the corpus into several chunks to degrade the computation complexity")
 parser.add_argument("--pretrained_model_name_or_path", required=True,type=str,default=None)
-#parser.add_argument("--backbone_state_dict_path", required=True,type=str,default=None)
+parser.add_argument("--backbone_state_dict_path", required=True,type=str,default=None)
 parser.add_argument("--max_seq_length", default=300, type=int)
 parser.add_argument("--pooling", default="mean")
 parser.add_argument("--local_rank", type=int, default=-1)
@@ -78,10 +78,10 @@ corpus_chunk_size=args.corpus_chunk_size
 
 pooling=args.pooling
 pretrained_model_name_or_path=args.pretrained_model_name_or_path
-backbone_state_dict_path=os.path.join(
-    args.checkpoint_save_folder,"round{}/backbone_state_dict.bin".format(args.round_idx)
+bias_state_dict_path=os.path.join(
+    args.checkpoint_save_folder,"round{}/bias_state_dict.bin".format(args.round_idx)
 )
-#ibackbone_state_dict_path=args.backbone_state_dict_path
+backbone_state_dict_path=args.backbone_state_dict_path
 logging.info(args)
 
 model=DRT5(
@@ -89,7 +89,7 @@ model=DRT5(
     pooling_mode=args.pooling,
     backbone_state_dict_path=backbone_state_dict_path
 )
-#model.load_bias(bias_state_dict_path)
+model.load_bias(bias_state_dict_path)
 tokenizer=AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
 
 data_folder=args.data_folder
@@ -108,7 +108,9 @@ train_rel_docs = {}  # Mapping qid => set with relevant pids
 ### Download files if needed
 with open(train_queries_file, encoding='utf8') as fIn:
     for idx,line in enumerate(fIn):
-        qid, query = line.strip('\n').split("\t")
+        #qid, query = line.strip('\n').split("\t")
+        item=json.loads(line)
+        qid,query=item['_id'],item['text']
         query="Query: "+query
         if idx == 0:
             logging.info(f"Train Query Example: {query}")
@@ -128,15 +130,16 @@ with open(train_qrels_filepath) as fIn:
 # Read passages
 with open(collection_filepath, encoding='utf8') as fIn:
     for line in fIn:
-        pid,title,body =line.strip('\n').split('\t')
-        #title,body=title.strip(),body.strip()
+        item=json.loads(line)
+        pid,body,title=item['_id'],item['text'],item['title']
         passage="Title: "+title+"Passage: "+body
         corpus[pid] = passage
 # Load the 6980 dev queries
+print(len(corpus))
 with open(test_queries_file, encoding='utf8') as fIn:
     for idx,line in enumerate(fIn):
-        qid, query = line.strip('\n').split("\t")
-        query="Query: "+query
+        item=json.loads(line)
+        qid,query=item['_id'],item['text']
         if idx == 0:
             logging.info(f"Train Query Example: {query}")
         test_queries[qid] = query
